@@ -3,6 +3,7 @@ import shutil
 import tensorflow as tf
 import scipy.io
 import tools
+from libs.vb import variational_bayes
 
 resolution = 64
 batch_size = 8
@@ -71,6 +72,14 @@ class Network:
             lfc = tf.reshape(layers_e[-1], [bat, -1])
             lfc = tools.Ops.xxlu(tools.Ops.fc(lfc, out_d=5000, name='fc1'), name='relu')
 
+        '''
+        This part is what I implemented with variational inference
+        '''
+        with tf.device('/gpu:'+GPU0):
+            z, z_mu, z_log_sigma, loss_z = variational_bayes(
+                h=lfc, n_code=128)
+            lfc = z
+
         with tf.device('/gpu:'+GPU0):
             lfc = tools.Ops.xxlu(tools.Ops.fc(lfc, out_d=d1 * d2 * d3 * cc, name='fc2'),name='relu')
             lfc = tf.reshape(lfc, [bat, d1, d2, d3, cc])
@@ -95,7 +104,7 @@ class Network:
             vox_no_sig = layers_d[-1]
             vox_sig = tf.sigmoid(layers_d[-1])
             vox_sig_modified = tf.maximum(vox_sig,0.01)
-        return vox_sig, vox_sig_modified,vox_no_sig
+        return vox_sig, vox_sig_modified,vox_no_sig, loss_z
 
     def dis(self, X, Y):
         with tf.device('/gpu:'+GPU0):
@@ -120,7 +129,7 @@ class Network:
         lr = tf.placeholder(tf.float32)
 
         with tf.variable_scope('ae'):
-            Y_pred, Y_pred_modi,Y_pred_nosig = self.ae_u(X)
+            Y_pred, Y_pred_modi,Y_pred_nosig, loss_z = self.ae_u(X)
 
         with tf.variable_scope('dis'):
             XY_real_pair = self.dis(X, Y)
@@ -157,6 +166,10 @@ class Network:
             gan_g_w = 5
             ae_w = 100-gan_g_w
             ae_gan_g_loss = ae_w * ae_loss + gan_g_w * gan_g_loss
+            '''
+            This part is what I implemented with variational inference
+            '''
+            ae_gan_g_loss += loss_z
 
         with tf.device('/gpu:' + GPU0):
             ae_var = [var for var in tf.trainable_variables() if var.name.startswith('ae')]
